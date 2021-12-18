@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>
+		ZMTS Call page
+	</title>
+	<script
+	  src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.0/socket.io.js"
+	  integrity="sha512-nYuHvSAhY5lFZ4ixSViOwsEKFvlxHMU2NHts1ILuJgOS6ptUmAGt/0i5czIgMOahKZ6JN84YFDA+mCdky7dD8A=="
+	  crossorigin="anonymous"
+	  referrerpolicy="no-referrer"
+	></script>
+	<script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+	<style type="text/css">
+	  html, body {
+			margin: 0px;
+		}
+		body {
+			background-color: black;
+			padding: 56px;
+			min-height: 100vh;
+			box-sizing: border-box;
+			font-family: "Gill Sans", sans-serif;
+		}
+		.participant-cards {
+			position: absolute;
+			width: 176px;
+			max-height: calc(100vh - 32px);
+			right: 16px;
+			top: 16px;
+			background: rgba(255, 255, 255, 0.6);
+			backdrop-filter: blur(40px);
+			border-radius: 8px;
+			padding: 40px 8px 8px 8px;
+			box-sizing: border-box;
+		}
+		.participant {
+			width: 100%;
+			display: flex;
+			position: relative;
+			align-items: center;
+			justify-content: center;
+			width: 100%;
+			height: 90px;
+			border-radius: 6px;
+			border: 2px solid white;
+			margin-bottom: 8px;
+			box-sizing: border-box;
+			background-color: black;
+			color: white;
+		}
+		.participant:last-child {
+			margin-bottom: 0px;
+		}
+		.controllers {
+			display: flex;
+			background-color: transparent;
+			position: absolute;
+			bottom: 48px;
+			left: 16px;
+		}
+		.controllers > * + * {
+			margin-left: 16px;
+		}
+		.action-btn {
+			padding: 0px;
+			border-radius: 8px;
+			height: 48px;
+			width:48px;
+			backdrop-filter: blur(40px);
+			border: none;
+			cursor: pointer;
+		}
+		.btn-pink {
+			background-color: #ff3459;
+		}
+		.btn-green {
+			background-color: #0fda24;
+		}
+		.btn-normal {
+			background-color: #fdedc0;
+		}
+		#highlight {
+			height: 100%;
+			width: 100%;
+			position: fixed;
+			left: 0;
+			right: 0;
+			top: 0;
+			bottom: 0;
+			background-color: black;
+			color: white;
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			font-size: 48px;
+		}
+	</style>
+</head>
+<body>
+	<div id="highlight">
+	</div>
+	<div id="participants" class="participant-cards">
+	</div>
+	<div class="controllers">
+		<!-- audio controls -->
+		<button
+		  id="audio-off"
+		  style="display: none; margin-left: 16px;"
+			class="action-btn btn-pink"
+			onclick="toggleAudio()"
+		>
+			<img src="icons/AudioOff.svg" height="24" width="24" alt="audio-off" />
+		</button>
+		<button
+		  id="audio-on"
+		  class="action-btn btn-green"
+			onclick="toggleAudio()"
+		>
+			<img src="icons/Audio.svg" height="24" width="24" alt="audio-on" />
+		</button>
+
+		<!-- video controls -->
+		<button
+		  id="video-off"
+		  style="display: none;"
+			class="action-btn btn-pink"
+			onclick="toggleVideo()"
+		>
+			<img src="icons/CameraOff.svg" height="24" width="24" alt="video-off" />
+		</button>
+		<button
+		  id="video-on"
+		  class="action-btn btn-green"
+			onclick="toggleVideo()"
+		>
+			<img src="icons/Camera.svg" height="24" width="24" alt="video-on" />
+		</button>
+
+		<!-- screen controls -->
+		<button
+		  id="screen-share-off"
+		  class="action-btn btn-pink"
+			onclick="toggleScreenShare()"
+		>
+			<img src="icons/Screen.svg" height="24" width="24" alt="screen-share-off" />
+		</button>
+		<button
+		  id="screen-share-on"
+		  style="display: none;"
+			class="action-btn btn-green"
+			onclick="toggleScreenShare()"
+		>
+			<img src="icons/ScreenShare.svg" height="24" width="24" alt="screen-share-on" />
+		</button>
+	</div>
+
+	<script type="text/javascript">
+		const params = (new URL(document.location)).searchParams
+
+		const roomId = params.get("room_id")
+		const localUser = params.get("user")
+
+		const socket = io("ws://1185-2405-201-c02b-bae8-ec3f-614e-ee61-6435.ngrok.io/listen")
+
+		let localStream
+		let myConnections = []
+
+		navigator.mediaDevices.getUserMedia({
+			video: true,
+			audio: true
+		}).then((stream) => {
+			localStream = stream
+			appendParticipant(localUser)
+			stream.getVideoTracks()[0].contentHint = 'video-of-' + localUser
+			stream.getAudioTracks()[0].contentHint = 'audio-of-' + localUser
+			createTrack('video', localUser, stream.getVideoTracks()[0])
+		}).catch(error => {
+			console.log('nhi hua bhai', error)
+		})
+
+		function createLocalVideoTrack () {
+			navigator.mediaDevices.getUserMedia({
+				video: true,
+				audio: false
+			}).then((stream) => {
+				stream.getVideoTracks()[0].contentHint = 'video-of-' + localUser
+				localStream.addTrack(stream.getVideoTracks()[0])
+				createTrack('video', localUser, stream.getVideoTracks()[0])
+			}).catch(error => {
+				console.log('nhi hua bhai', error)
+			})
+		}
+
+		let users = []
+
+		function createTrack(type, user, track) {
+			if (type === 'audio' && user !== localUser) {
+				let audio = document.createElement('audio')
+				audio.setAttribute("id", "audio-of-" + user)
+				const s = new MediaStream()
+				s.addTrack(track)
+				audio.srcObject = s
+				document.body.appendChild(audio)
+				audio.play()
+			} else if (type === 'video') {
+				let video = document.createElement('video')
+				video.setAttribute("id", "video-of-" + user)
+				video.style.height = "inherit"
+				video.style.width = "inherit"
+				const s = new MediaStream()
+				s.addTrack(track)
+				video.srcObject = s
+				const parent = document.getElementById(user.replace(' ', '-'))
+				parent.innerHTML = ''
+				parent.style.border = "none"
+				parent.style.backgroundColor = "black"
+				parent.appendChild(video)
+				if (user === localUser) {
+					console.log('muting')
+				  video.muted = true
+				}
+				video.play()
+			}
+		}
+
+		function appendParticipant(user) {
+			const element = document.createElement('div')
+			element.setAttribute("id", user.replace(' ', '-'))
+			element.setAttribute("class", "participant")
+			element.innerText = user.substring(0, 1).toUpperCase()
+			element.addEventListener("click", (event) => {
+				console.log("entered", event)
+				document.getElementById('highlight').innerHTML = event.target.innerHTML
+			})
+			document.getElementById('participants').appendChild(element)
+		}
+
+		function toggleAudio() {
+			console.log(document.getElementById('audio-off').style.display === 'none')
+			if (document.getElementById('audio-off').style.display === 'none') {
+				document.getElementById('audio-on').style.display = 'none'
+				// add code to turn audio off
+				localStream.getAudioTracks()[0].enabled = false
+				document.getElementById('audio-off').style.display = 'block'
+			} else {
+				document.getElementById('audio-off').style.display = 'none'
+				// add code to turn audio on
+				localStream.getAudioTracks()[0].enabled = true
+				document.getElementById('audio-on').style.display = 'block'
+			}
+		}
+
+		function toggleVideo() {
+			if(document.getElementById('video-off').style.display === 'none') {
+				document.getElementById('video-on').style.display = 'none'
+				// add code to turn video off
+				const videoTracks = localStream.getVideoTracks()
+				videoTracks.forEach(track => {
+					if (track.contentHint === 'video-of-' + localUser) {
+						document.getElementById('video-of-' + localUser).pause()
+						document.getElementById('video-of-' + localUser).srcObject = undefined
+						track.stop()
+						localStream.removeTrack(track)
+					}
+				})
+				document.getElementById('video-of-' + localUser).parentNode.removeChild(document.getElementById('video-of-' + localUser))
+				document.getElementById(localUser.replace(' ', '-')).innerText = localUser.substring(0, 1)
+				document.getElementById('video-off').style.display = 'block'
+			} else {
+				document.getElementById('video-on').style.display = 'block'
+				// add code to turn video on
+				createLocalVideoTrack()
+				document.getElementById('video-off').style.display = 'none'
+			}
+		}
+
+		function toggleScreenShare() {
+			if(document.getElementById('screen-share-off').style.display === 'none') {
+				document.getElementById('screen-share-on').style.display = 'none'
+				document.getElementById('screen-share-off').style.display = 'block'
+			} else {
+				document.getElementById('screen-share-on').style.display = 'block'
+				document.getElementById('screen-share-off').style.display = 'none'
+			}
+		}
+		
+		socket.on("connect", () => {
+			socket.emit('add_user', {
+				sid: localUser,
+				roomId: roomId,
+				socketId: socket.id,
+				candidates: [],
+				offers: []
+			})
+			socket.emit("get_connected_users", {
+				sid: localUser,
+				roomId: roomId,
+				socketId: socket.id
+			})
+		})
+
+		socket.on("user_added", (payload) => {
+			console.log('new user added: ', payload)
+			if (payload.sid !== localUser) {
+				users.push(payload)
+				console.log("appending new user to HTML: ", payload.sid)
+				appendParticipant(payload.sid)
+			}
+		})
+
+		socket.on("user_removed", (payload) => {
+			users.forEach((user, index) => {
+				if (user.socketId === payload.socketId) {
+					console.log('removin user')
+					users.splice(index, 1)
+					document.getElementById(payload.sid.replace(' ', '-')).parentNode.removeChild(document.getElementById(payload.sid.replace(' ', '-')))
+				}
+			})
+			myConnections.forEach((connection, index) => {
+				if (connection.conn_with_socket === payload.socketId) {
+					console.log('removin user')
+					connection.conn.close()
+					myConnections.splice(index, 1)
+				}
+			})
+			console.log(users)
+		})
+
+		const iceConfigurations = {
+			iceServers: [
+				{
+					urls: ['stun:stun.globalmeet.com:3478']
+				},
+				{
+					urls: 'turn:localhost:3478',
+					username: "zmts",
+					credential: "password"
+				}
+			]
+	  }
+
+		socket.on('')
+
+		socket.on('send_connected_users', (payload) => {
+			console.log('users received: ', payload)
+			users = payload
+			users.forEach((user, index) => {
+				console.log("appending new user to HTML: ", user.sid)
+				console.log("creating connection with: ", user.sid)
+				myConnections.push({
+					conn: new RTCPeerConnection(iceConfigurations),
+					id: index,
+					conn_with: user.sid,
+					roomId: user.roomId,
+					conn_with_socket: user.socketId
+				})
+				appendParticipant(user.sid)
+				const videoTracks = localStream.getVideoTracks()
+				videoTracks.forEach((track) => {
+					myConnections[index].conn.addTrack(track, localStream)
+				})
+				const audioTracks = localStream.getAudioTracks()
+				audioTracks.forEach((track) => {
+					myConnections[index].conn.addTrack(track, localStream)
+				})
+				myConnections[index].conn.ontrack = (event) => {
+					console.log('new track added', event.track.contentHint)
+				}
+				myConnections[index].conn.onicecandidate = (event) => {
+					if (event.candidate) {
+						console.log('found new ice candidate, sending to server............')
+						socket.emit('store_candidate', {
+							sid: localUser,
+							candidate: event.candidate
+						})
+					}
+				}
+			})
+			users.forEach((user, i) => {
+				let answered = false
+			  user.offers.forEach((offer, index) => {
+					if (offer.offer_for === user.sid) {
+						createAnswer()
+						answered = true
+					}
+				})
+				if (!answered) {
+					createOffer(myConnections[i])
+				}
+			})
+			console.log(users)
+		})
+
+		function createOffer (connection) {
+			connection.conn.createOffer((offer) => {
+				console.log('creating offer for: ', connection.conn_with)
+				connection.conn.setLocalDescription(offer)
+				socket.emit('store_offer', {
+				  sid: localUser,
+					offer: offer,
+					offer_for: connection.conn_with
+				})
+			}, (error) => {
+				console.log(error)
+			})
+		}
+
+		socket.on("error", (payload) => {
+			// alert(payload)
+			console.log('Not able to join.')
+			// window.location.href = '/index.html'
+		})
+
+		socket.on("disconnect", () => {
+			console.log('You have been diconnected.')
+		})
+	</script>
+</body>
+</html>

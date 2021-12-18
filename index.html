@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>
+		ZMTS Home page
+	</title>
+	<style type="text/css">
+		html, body {
+			margin: 0px;
+		}
+		body {
+			background-color: black;
+			padding: 56px;
+			min-height: 100vh;
+			box-sizing: border-box;
+			font-family: "Gill Sans", sans-serif;
+		}
+		.room-userid-container {
+			display: flex;
+			flex-direction: column;
+			margin-top: 164px;
+		}
+		.room-userid-container h1 {
+			font-size: 48px;
+			font-weight: 600px;
+			color: white;
+			margin: 0px;
+		}
+		.room-userid-container p {
+			font-size: 24px;
+			color: white;
+			margin: 0px;
+		}
+		.action-buttons {
+			display: flex;
+			align-items: center;
+			margin-top: 36px;
+		}
+		.action-buttons p {
+			color: white;
+			font-size: 16px;
+			font-weight: 500;
+		}
+		.action-buttons > * + * {
+			margin-left: 24px;
+		}
+		button {
+			height: 40px;
+			padding: 0px 16px;
+			box-sizing: border-box;
+			background-color: #ea5437;
+			border-radius: 4px;
+			border: none;
+			color: white;
+			font-weight: 500;
+			font-size: 16px;
+			cursor: pointer;
+			opacity: 0.75;
+		}
+		button:hover {
+			opacity: 1;
+		}
+		.join-room-action {
+			display: flex;
+			align-items: center;
+		}
+		.join-room-action > * + * {
+			margin-left: 8px;
+		}
+		input {
+			height: 40px;
+			padding-left: 8px;
+			width: 160px;
+			border-radius: 4px;
+			border: none;
+			box-sizing: border-box;
+		}
+		img {
+			position: absolute;
+			right: 40px;
+			top: 95px;
+			width: 720px;
+		}
+	</style>
+</head>
+<body>
+	<div class="room-userid-container">
+		<h1>ZMTS</h1>
+		<p>Calling made easy</p>
+	</div>
+	<div class="action-buttons">
+		<button onclick="createRoom()">
+			Create Room
+		</button>
+		<p>Or</p>
+		<div class="join-room-action">
+			<input id="room-id" type="text" placeholder="Enter room id" />
+			<button onclick="joinRoom()">
+				Join Room
+			</button>
+		</div>
+	</div>
+	<img src="icons/Images.png" alt="background-image" />
+	<script type="text/javascript">
+		function generateRoomId(length) {
+			var result = ''
+			var characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+			for ( var i = 0; i < length; i++ ) {
+				result += characters.charAt(Math.floor(Math.random() * characters.length))
+			}
+			return result
+		}
+
+		function createRoom() {
+			const username = prompt("Enter your username: ")
+			window.location.href = `/call.html?user=${username}&room_id=${generateRoomId(6)}`
+		}
+
+		function joinRoom() {
+			const username = prompt("Enter your username: ")
+			const roomId = document.getElementById('room-id').value
+			window.location.href = `/call.html?user=${username}&room_id=${roomId}`
+		}
+	</script>
+</body>
+</html>
