@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>
+        Demo
+    </title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.0/socket.io.js"
+        integrity="sha512-nYuHvSAhY5lFZ4ixSViOwsEKFvlxHMU2NHts1ILuJgOS6ptUmAGt/0i5czIgMOahKZ6JN84YFDA+mCdky7dD8A=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+</head>
+
+<body>
+    <div id="screen1" style="display: none;">
+        <input id="username-input" type="text" name="username" />
+        <button onclick="storeUser()">Join</button>
+    </div>
+    <div id="screen2">
+        <video id="localVideo" autoplay muted></video>
+        <button onclick="turnVideoOn()">video toggle</button>
+    </div>
+    <script type="text/javascript">
+        const socket = io("ws://localhost:3003/listen")
+
+        let users = []
+        let localUser
+        let isNew
+        let connections = []
+        let localStream = null
+
+        socket.on('connect', () => {
+            console.log('socket connected')
+            socket.emit('get_users')
+            // socket.emit('reset')
+        })
+
+        socket.on('get_users', (payload) => {
+            users = payload
+            console.log('users-list', users)
+            document.getElementById('screen1').style.display = 'block'
+        })
+
+        socket.on('set_answer_description', (payload) => {
+            connections.forEach((conn, index) => {
+                if (localUser) {
+                    if (localUser === payload.offerSid && conn.id === payload.id && !conn.conn.remoteDescription && conn.conn.signalingState !== 'stable') {
+                        console.log('accepting answer from: ', payload.sid)
+                        connections[payload.id].conn.setRemoteDescription(payload.answer)
+                    }
+                }
+            })
+        })
+
+        const iceConfigurations = {
+            iceServers: [
+                {
+                    urls: ['stun:stun.globalmeet.com:3478']
+                },
+                {
+                    urls: 'turn:localhost:3478',
+                    username: "zmts",
+                    credential: "password"
+                }
+            ]
+        }
+
+        socket.on('get_user', (payload) => {
+            console.log('updated users list', payload)
+            users = payload
+            if (users.length > 1) {
+                let counter = 0
+                for (let i = 0; i < users.length; i++) {
+                    if ((users[i].sid !== localUser) && localUser) {
+                        isNew = true
+                        createConnection(counter, localStream)
+                        if (users[i].offer) {
+                            if (isNew) {
+                                createAndSendOffer(connections[counter])
+                            }
+                            createAndSendAnswer(connections[counter], users[i])
+                        }
+                        counter++
+                    }
+                }
+            }
+        })
+
+        socket.on('send_candidate', (payload) => {
+            console.log('adding the candidate: via send sendidate', connections)
+            if (localUser && localUser !== payload.sid && payload.candidate.candidate.length > 0) {
+                console.log('adding ice candidate ', payload.candidate)
+                connections[payload.id] && connections[payload.id].conn.addIceCandidate(payload.candidate)
+            }
+            // let counter = 0
+            // let index = 0
+            // for(let i = 0; i< users.length; i++) {
+            // 	if (payload.sid === users[i].sid) {
+            // 		index = i
+            // 		break
+            // 	}
+            // }
+            // for(let i = 0; i< users.length; i++) {
+            // 	if (i !== index) {
+            // 		console.log('counter', connections[counter])
+            // 		connections[counter].conn && connections[counter].conn.addIceCandidate(payload.candidate)
+            // 		counter++
+            // 	}
+            // }
+        })
+
+        function storeUser() {
+            localUser = JSON.parse(JSON.stringify(document.getElementById('username-input').value))
+            turnVideoOn()
+            document.getElementById('screen1').style.display = 'none'
+        }
+
+        function createConnection(i, stream) {
+            console.log('creatin conn adding stream', stream)
+            if (connections[i]) {
+                isNew = false
+            } else {
+                connections.push({
+                    conn: new RTCPeerConnection(iceConfigurations),
+                    id: i
+                })
+                if (stream) {
+                    connections[i].conn.addStream(stream)
+                }
+                connections[i].conn.onaddstream = (event) => {
+                    console.log('stream added listener', event)
+
+
+                    const video = document.createElement('video');
+                    video.setAttribute("id", Math.random() * 10000)
+                    document.getElementById('screen2').appendChild(video)
+                    video.srcObject = event.stream
+                    video.muted = true
+
+                    video.onloadedmetadata = (event) => {
+                        video.play()
+                    }
+                }
+                connections[i].conn.onicecandidate = (event) => {
+                    console.log('new ice candidate', event)
+                    if (event.candidate) {
+                        socket.emit('store_candidate', {
+                            sid: localUser,
+                            candidate: event.candidate
+                        })
+                        socket.emit('send_candidate', {
+                            sid: localUser,
+                            candidate: event.candidate,
+                            id: connections[i].id
+                        })
+                    }
+                }
+                connections[i].conn.onconnectionstatechange = (event) => {
+                    console.log('change in connection state', event)
+                }
+                isNew = true
+            }
+        }
+
+        function createAndSendOffer(conn) {
+            conn.conn.createOffer((offer) => {
+                socket.emit('store_offer', {
+                    sid: localUser,
+                    offer: offer
+                })
+                conn.conn.setLocalDescription(offer)
+            }, (error) => {
+                console.log(error)
+            })
+        }
+
+        function createAndSendAnswer(conn, user) {
+            console.log('inside answer')
+            if (!conn.conn.remoteDescription) {
+                conn.conn.setRemoteDescription(user.offer)
+                conn.conn.createAnswer((answer) => {
+                    console.log('giving answer to offer by: ', user.sid)
+                    conn.conn.setLocalDescription(answer)
+                    socket.emit('send_answer', {
+                        sid: localUser,
+                        offerSid: user.sid,
+                        answer: answer,
+                        id: conn.id
+                    })
+                }, error => {
+                    console.log(error)
+                })
+            }
+        }
+
+        function turnVideoOn() {
+            navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true
+            }).then((stream) => {
+                localStream = stream
+                console.log(localStream.getVideoTracks())
+                document.getElementById('localVideo').srcObject = stream
+                console.log(stream)
+                if (users.length === 0) {
+                    createConnection(0, stream)
+                    createAndSendOffer(connections[0])
+                } else {
+                    let counter = 0
+                    users.push({
+                        sid: localUser
+                    })
+                    for (let i = 0; i < users.length; i++) {
+                        if ((users[i].sid !== localUser)) {
+                            isNew = true
+                            createConnection(counter, stream)
+                            if (isNew) {
+                                createAndSendOffer(connections[counter])
+                            }
+                            counter++
+                        }
+                    }
+                }
+                socket.emit('store_user', {
+                    sid: localUser
+                })
+            }).catch((error) => {
+                console.log(error)
+            })
+        }
+    </script>
+</body>
+
+</html>
