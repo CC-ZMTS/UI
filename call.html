@@ -161,7 +161,7 @@
 		const roomId = params.get("room_id")
 		const localUser = params.get("user")
 
-		const socket = io("https://1185-2405-201-c02b-bae8-ec3f-614e-ee61-6435.ngrok.io/listen")
+		const socket = io("ws://1185-2405-201-c02b-bae8-ec3f-614e-ee61-6435.ngrok.io/listen")
 
 		let localStream
 		let myConnections = []
@@ -300,6 +300,19 @@
 			})
 		})
 
+		const iceConfigurations = {
+			iceServers: [
+				{
+					urls: ['stun:stun.globalmeet.com:3478']
+				},
+				{
+					urls: 'turn:localhost:3478',
+					username: "zmts",
+					credential: "password"
+				}
+			]
+		}
+
 		socket.on("user_added", (payload) => {
 			console.log('new user added: ', payload)
 			if (payload.sid !== localUser) {
@@ -307,6 +320,21 @@
 				console.log("appending new user to HTML: ", payload.sid)
 				appendParticipant(payload.sid)
 			}
+			myConnections.push({
+				conn: new RTCPeerConnection(iceConfigurations),
+				id: myConnections.length,
+				conn_with: payload.sid,
+				roomId: payload.roomId,
+				conn_with_socket: payload.socketId
+			})
+			console.log(payload.offers)
+			payload.offers.forEach((offer) => {
+				if (offer.offer_for === localUser) {
+					createAnswer(myConnections[myConnections.length - 1], offer)
+				} else {
+					console.log(`offer hi nhi tha ${payload.sid} ke pas`)
+				}
+			})
 		})
 
 		socket.on("user_removed", (payload) => {
@@ -319,7 +347,7 @@
 			})
 			myConnections.forEach((connection, index) => {
 				if (connection.conn_with_socket === payload.socketId) {
-					console.log('removin user')
+					console.log('removin connection')
 					connection.conn.close()
 					myConnections.splice(index, 1)
 				}
@@ -327,20 +355,33 @@
 			console.log(users)
 		})
 
-		const iceConfigurations = {
-			iceServers: [
-				{
-					urls: ['stun:stun.globalmeet.com:3478']
-				},
-				{
-					urls: 'turn:localhost:3478',
-					username: "zmts",
-					credential: "password"
+		socket.on('offer_stored', (payload) => {
+			myConnections.forEach((connection, index) => {
+				console.log('dede bhai answer', connection.conn_with === payload.offer_for, connection.conn_with, payload.offer_for)
+				if (connection.conn_with === payload.offer_for) {
+					console.log('dede bhai answer please')
+					createAnswer(connection, payload)
 				}
-			]
-	  }
+			})
+		})
 
-		socket.on('')
+		socket.on("receive_candidate", (payload) => {
+			myConnections.forEach(connection => {
+				if (payload.conn_with === connection.conn_with) {
+					console.log('adding candidate....')
+					connection.conn.addIceCandidate(payload.candidate)
+				}
+			})
+		})
+
+		socket.on("set_answer_description", (payload) => {
+			myConnections.forEach(connection => {
+				if (payload.answer_for === localUser && connection.conn_with === payload.sid) {
+					console.log('setting remote description answer....')
+					connection.setRemoteDescription(answer)
+				}
+			})
+		})
 
 		socket.on('send_connected_users', (payload) => {
 			console.log('users received: ', payload)
@@ -372,7 +413,14 @@
 						console.log('found new ice candidate, sending to server............')
 						socket.emit('store_candidate', {
 							sid: localUser,
-							candidate: event.candidate
+							candidate: event.candidate,
+							roomId: roomId
+						})
+						socket.emit('send_candidate', {
+							sid: localUser,
+							candidate: event.candidate,
+							conn_with: myConnections[index].conn_with,
+							roomId: roomId
 						})
 					}
 				}
@@ -381,7 +429,7 @@
 				let answered = false
 			  user.offers.forEach((offer, index) => {
 					if (offer.offer_for === user.sid) {
-						createAnswer()
+						createAnswer(myConnections[i], offer)
 						answered = true
 					}
 				})
@@ -399,11 +447,32 @@
 				socket.emit('store_offer', {
 				  sid: localUser,
 					offer: offer,
-					offer_for: connection.conn_with
+					offer_for: connection.conn_with,
+					roomId: roomId
 				})
 			}, (error) => {
 				console.log(error)
 			})
+		}
+
+		function createAnswer(connection, offer) {
+			console.log('inside answer')
+			console.log(offer.offer)
+			connection.conn.setRemoteDescription(offer.offer)
+			setTimeout(() => {
+				connection.conn.createAnswer((answer) => {
+					console.log('giving answer to offer by: ', offer.sid)
+					connection.conn.setLocalDescription(answer)
+					socket.emit('send_answer', {
+						sid: localUser,
+						answer: answer,
+						answer_for: offer.sid,
+						roomId: roomId
+					})
+				}, error => {
+						console.log(error)
+				})
+			}, 1000)
 		}
 
 		socket.on("error", (payload) => {
