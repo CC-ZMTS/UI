@@ -367,7 +367,7 @@
 
 		socket.on("receive_candidate", (payload) => {
 			myConnections.forEach(connection => {
-				if (payload.conn_with === connection.conn_with) {
+				if ((payload.conn_with === connection.conn_with) && (payload.candidate.candidate)) {
 					console.log('adding candidate....')
 					connection.conn.addIceCandidate(payload.candidate)
 				}
@@ -378,7 +378,7 @@
 			myConnections.forEach(connection => {
 				if (payload.answer_for === localUser && connection.conn_with === payload.sid) {
 					console.log('setting remote description answer....')
-					connection.setRemoteDescription(answer)
+					connection.conn.setRemoteDescription(payload.answer)
 				}
 			})
 		})
@@ -459,7 +459,7 @@
 			console.log('inside answer')
 			console.log(offer.offer)
 			connection.conn.setRemoteDescription(offer.offer)
-			setTimeout(() => {
+			.then(() => {
 				connection.conn.createAnswer((answer) => {
 					console.log('giving answer to offer by: ', offer.sid)
 					connection.conn.setLocalDescription(answer)
@@ -472,7 +472,7 @@
 				}, error => {
 						console.log(error)
 				})
-			}, 1000)
+			})
 		}
 
 		socket.on("error", (payload) => {
